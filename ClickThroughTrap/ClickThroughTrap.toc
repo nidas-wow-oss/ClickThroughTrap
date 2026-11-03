@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: ClickThroughTrap
+## Notes: While you aim a ground spell (Freezing Arrow, traps, etc.) the focus, arena, target frames and action bars turn see-through and the mouse clicks through them.
+## Notes-esES: Mientras apuntas un hechizo de suelo (Flecha congelante, trampas, etc.) los frames de focus, arena, target y las barras de accion se vuelven transparentes y atravesables con el raton.
+## Author: Nidhaus
+## Version: 1.1
+## SavedVariables: ClickThroughTrapDB
+ClickThroughTrap.lua
