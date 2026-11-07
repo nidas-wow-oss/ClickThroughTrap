@@ -71,7 +71,7 @@ local pending    = {}
 -- dejaba las barras sin poder clickearse mientras tanto.
 local IGNORE_SPELLS = { 6991 }   -- Feed Pet / Alimentar mascota
 
-local function Print(msg) DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99ClickThroughTrap:|r " .. tostring(msg)) end
+local function Print(msg) DEFAULT_CHAT_FRAME:AddMessage("|cffffffffClickThrough|r|cff00ff00Trap|r: " .. tostring(msg)) end
 
 ---------------------------------------------------------------------------
 -- Textos: en ingles, y en espanol si el cliente esta en espanol.
@@ -396,7 +396,7 @@ local widgets = {}
 local function BuildPanel()
     local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
-    title:SetText("ClickThroughTrap")
+    title:SetText("|cffffffffClickThrough|r|cff00ff00Trap|r")
 
     local sub = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
