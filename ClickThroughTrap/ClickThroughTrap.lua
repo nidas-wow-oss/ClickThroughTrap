@@ -1,23 +1,14 @@
--- ClickThroughTrap  (WoW 3.3.x, Interface 30300)
--- Mientras SpellIsTargeting() es true (cursor de hechizo de suelo), los frames
--- (focus/arena/target) y opcionalmente las barras de accion (tambien las de
--- nExtraBars), y TODOS sus hijos,
--- pasan a tener el area de raton vacia (SetHitRectInsets) y se vuelven
--- semitransparentes. Al terminar se restaura exactamente lo que habia antes.
--- Las teclas de accion siguen funcionando; solo se anula el clic del raton.
-
 local BIG = 10000
 
 local defaults = {
     enabled  = true,
-    alpha    = 0.25,  -- opacidad de focus/arena/target mientras apuntas
-    target   = true,  -- incluir target y su ToT
-    bars     = true,  -- incluir barras de accion
-    barAlpha = 0.35,  -- opacidad de las barras mientras apuntas
-    extra    = {},    -- frames anadidos con /ctt add
+    alpha    = 0.25,
+    target   = true,
+    bars     = true,
+    barAlpha = 0.35,
+    extra    = {},
 }
 
--- grupo "alpha" = unit frames
 local exactUnit = {
     "FocusFrame",
     "ArenaEnemyFrames",
@@ -37,14 +28,13 @@ local patternsUnit = {
     "^Nidhaus",
 }
 
--- grupo "barAlpha" = barras de accion
 local exactBars = {
     "MainMenuBar", "MainMenuBarArtFrame",
     "MultiBarBottomLeft", "MultiBarBottomRight",
     "MultiBarRight", "MultiBarLeft", "VerticalMultiBarsContainer",
     "ShapeshiftBarFrame", "PetActionBarFrame",
     "BonusActionBarFrame", "VehicleMenuBar",
-    -- nExtraBars: sus dos barras y sus 24 botones
+
     "NEB_BarLeft", "NEB_BarRight",
 }
 local patternsBars = {
@@ -56,26 +46,19 @@ local patternsBars = {
 
 local DB
 local cache, groupOf, dirty = {}, {}, true
-local saved      = {}   -- [frame] = {l,r,t,b}
-local alphaOf    = {}   -- [frame] = alpha original
-local alphaGroup = {}   -- [frame] = "alpha" | "barAlpha"
+local saved      = {}
+local alphaOf    = {}
+local alphaGroup = {}
 local touched    = {}
 local active     = false
 local forceUntil = 0
--- Marcos protegidos que no se pudieron devolver por estar en combate:
--- [frame] = {l,r,t,b} de fabrica. Se devuelven al salir de combate.
+
 local pending    = {}
 
--- Hechizos que ponen el cursor de apuntar pero NO son de suelo: con ellos el
--- addon no toca nada. Alimentar mascota apunta a la comida de las bolsas, y
--- dejaba las barras sin poder clickearse mientras tanto.
-local IGNORE_SPELLS = { 6991 }   -- Feed Pet / Alimentar mascota
+local IGNORE_SPELLS = { 6991 }
 
 local function Print(msg) DEFAULT_CHAT_FRAME:AddMessage("|cffffffffClickThrough|r|cff00ff00Trap|r: " .. tostring(msg)) end
 
----------------------------------------------------------------------------
--- Textos: en ingles, y en espanol si el cliente esta en espanol.
----------------------------------------------------------------------------
 local L = {
     TEST       = "8 s test: move the sliders and click through the frames.",
     ON         = "enabled",
@@ -134,9 +117,6 @@ if LOCALE == "esES" or LOCALE == "esMX" then
     L.HINT      = "0% = invisible, 100% = sin cambio de opacidad. El clic siempre atraviesa mientras apuntás."
 end
 
----------------------------------------------------------------------------
--- Resolver frames raiz
----------------------------------------------------------------------------
 local function matchAny(name, list)
     for _, p in ipairs(list) do
         if name:find(p) then return true end
@@ -185,26 +165,6 @@ local function Resolve()
     dirty = false
 end
 
----------------------------------------------------------------------------
--- Aplicar / restaurar
---
--- EL BUG DE LAS BARRAS QUE NO SE PODIAN CLICKEAR.
---
--- Los botones de accion y los marcos de unidad son marcos PROTEGIDOS: en
--- combate el juego bloquea SetHitRectInsets sobre ellos (no da error, solo
--- no lo hace). Si empezabas a apuntar fuera de combate y soltabas ya en
--- combate, la devolucion se bloqueaba, la lista se borraba igual y las
--- barras quedaban sin area de click hasta el /reload.
---
--- Ahora:
---   * En combate no se toca el area de click de un marco protegido (la
---     transparencia si, eso el juego lo deja).
---   * Al ENTRAR en combate (PLAYER_REGEN_DISABLED todavia deja tocarlos) se
---     les devuelve el area de click a los protegidos.
---   * Lo que igual no se pudo devolver queda anotado y se devuelve al salir
---     de combate; y si se vuelve a apuntar antes, se usa lo anotado como el
---     valor de fabrica (no el que quedo trabado).
----------------------------------------------------------------------------
 local function Locked(f)
     return InCombatLockdown() and f.IsProtected and f:IsProtected()
 end
@@ -215,7 +175,6 @@ local function SameInsets(f, r)
        and math.abs((c or 0) - r[3]) < 0.5 and math.abs((d or 0) - r[4]) < 0.5
 end
 
--- Devuelve el area de click; si el juego no lo dejo, queda pendiente.
 local function RestoreInsets(f, r)
     if not Locked(f) then
         f:SetHitRectInsets(r[1], r[2], r[3], r[4])
@@ -229,12 +188,11 @@ local function FlushPending()
     for f, r in pairs(pending) do RestoreInsets(f, r) end
 end
 
--- group != nil  => frame raiz al que se le cambia la opacidad
 local function ApplyTree(f, group)
     if saved[f] ~= nil then return end
     touched[#touched + 1] = f
     if Locked(f) then
-        saved[f] = false   -- visto, pero su area de click no se toca
+        saved[f] = false
     else
         local orig = pending[f] or { f:GetHitRectInsets() }
         pending[f] = nil
@@ -266,7 +224,7 @@ local function Start()
     end
     for i = 1, #cache do
         local f = cache[i]
-        -- la opacidad solo se aplica a raices sin ancestro raiz (evita multiplicar alphas)
+
         ApplyTree(f, (not hasRootAncestor(f)) and groupOf[f] or nil)
     end
 end
@@ -283,8 +241,6 @@ local function Stop()
     wipe(saved); wipe(alphaOf); wipe(alphaGroup); wipe(touched)
 end
 
--- Entrando en combate: a los protegidos se les devuelve el area de click
--- ahora, que todavia se puede. Siguen transparentes hasta soltar.
 local function ReleaseProtected()
     for i = 1, #touched do
         local f = touched[i]
@@ -297,7 +253,7 @@ local function ReleaseProtected()
     FlushPending()
 end
 
-local function RefreshAlpha() -- para ver el slider en vivo durante el test
+local function RefreshAlpha()
     for f, g in pairs(alphaGroup) do f:SetAlpha(DB[g]) end
 end
 
@@ -306,11 +262,6 @@ local function TestNow()
     Print(L.TEST)
 end
 
----------------------------------------------------------------------------
--- Deteccion
----------------------------------------------------------------------------
--- El hechizo que espera objetivo queda "actual" (su boton se marca), asi
--- que IsCurrentSpell dice cual es.
 local ignoreNames
 local function IgnoredSpellPending()
     if not ignoreNames then
@@ -323,7 +274,7 @@ local function IgnoredSpellPending()
     for _, n in ipairs(ignoreNames) do
         local ok, cur = pcall(IsCurrentSpell, n)
         if ok and cur then return true end
-        -- Por si el cliente solo lo acepta por el numero del libro de hechizos.
+
         local i = 1
         while true do
             local name = GetSpellName(i, BOOKTYPE_SPELL)
@@ -350,9 +301,6 @@ watcher:SetScript("OnUpdate", function()
     elseif not want and active then Stop() end
 end)
 
----------------------------------------------------------------------------
--- Panel de opciones (Interfaz > AddOns > ClickThroughTrap)
----------------------------------------------------------------------------
 local panel = CreateFrame("Frame", "ClickThroughTrapOptions", UIParent)
 panel.name = "ClickThroughTrap"
 local loading = false
@@ -427,9 +375,6 @@ panel:SetScript("OnShow", function()
     for _, w in ipairs(widgets) do w.refresh() end
 end)
 
----------------------------------------------------------------------------
--- Eventos
----------------------------------------------------------------------------
 watcher:RegisterEvent("ADDON_LOADED")
 watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 watcher:RegisterEvent("PLAYER_FOCUS_CHANGED")
@@ -459,12 +404,9 @@ watcher:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
----------------------------------------------------------------------------
--- Comandos: /ctt
----------------------------------------------------------------------------
 local function OpenPanel()
     InterfaceOptionsFrame_OpenToCategory(panel)
-    InterfaceOptionsFrame_OpenToCategory(panel) -- doble llamada: bug conocido de 3.3.5
+    InterfaceOptionsFrame_OpenToCategory(panel)
 end
 
 SLASH_CLICKTHROUGHTRAP1 = "/ctt"
