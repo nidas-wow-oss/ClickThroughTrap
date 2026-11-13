@@ -6,6 +6,9 @@ local defaults = {
     target   = true,
     bars     = true,
     barAlpha = 0.35,
+    plateIcons = true,
+    focusBar   = true,
+    mouseBar   = true,
     extra    = {},
 }
 
@@ -77,7 +80,13 @@ local L = {
     PROT       = "[protected]",
     UNDER      = "under the mouse: ",
     SCAN_HINT  = "use /ctt add <name> with the ROOT frame of that chain (the one before UIParent).",
-    HELP       = "/ctt (opens the menu) | on|off | target on|off | bars on|off | alpha <0-1> | baralpha <0-1> | add | del | list | scan | test",
+    HELP       = "/ctt (opens the menu) | on|off | target on|off | bars on|off | plates on|off | alpha <0-1> | baralpha <0-1> | add | del | list | scan | test",
+    CB_PLATES  = "Hide Icicle and PlateBuffs icons on nameplates",
+    PLATES     = "nameplate icons: ",
+    HIDDEN     = "hidden while aiming",
+    SHOWN      = "always shown",
+    CB_FOCUSBAR = "Hide the health bar of the focus nameplate",
+    CB_MOUSEBAR = "Hide the health bar of the nameplate under the mouse",
     SUB        = "While you aim a ground spell, the frames turn see-through and the mouse clicks through them.",
     CB_ON      = "Addon enabled",
     CB_TARGET  = "Include the target frame",
@@ -106,7 +115,13 @@ if LOCALE == "esES" or LOCALE == "esMX" then
     L.PROT      = "[protegido]"
     L.UNDER     = "bajo el ratón: "
     L.SCAN_HINT = "usá /ctt add <nombre> con el marco RAÍZ de esa cadena (el de antes de UIParent)."
-    L.HELP      = "/ctt (abre el menú) | on|off | target on|off | bars on|off | alpha <0-1> | baralpha <0-1> | add | del | list | scan | test"
+    L.HELP      = "/ctt (abre el menú) | on|off | target on|off | bars on|off | plates on|off | alpha <0-1> | baralpha <0-1> | add | del | list | scan | test"
+    L.CB_PLATES = "Ocultar los íconos de Icicle y PlateBuffs en las placas"
+    L.PLATES    = "íconos de las placas: "
+    L.HIDDEN    = "ocultos mientras apuntás"
+    L.SHOWN     = "siempre visibles"
+    L.CB_FOCUSBAR = "Ocultar la barra de vida de la placa del focus"
+    L.CB_MOUSEBAR = "Ocultar la barra de vida de la placa bajo el ratón"
     L.SUB       = "Mientras apuntás un hechizo de suelo, los marcos se vuelven transparentes y el ratón los atraviesa."
     L.CB_ON     = "Addon activado"
     L.CB_TARGET = "Incluir el marco del objetivo"
@@ -208,9 +223,177 @@ local function ApplyTree(f, group)
     for i = 1, #children do ApplyTree(children[i], nil) end
 end
 
+local icicleIcons = {}
+local plateHidden = {}
+local plateHiding = false
+
+local function PlatesWanted()
+    return DB and DB.plateIcons and active
+end
+
+local function HideIcicleIcon(icon)
+    if icon:IsShown() then
+        if not plateHidden[icon] then plateHidden[icon] = icon:GetParent() or true end
+        icon:Hide()
+    end
+end
+
+hooksecurefunc("CooldownFrame_SetTimer", function(cd)
+    local icon = cd and cd.GetParent and cd:GetParent()
+    if not icon or icicleIcons[icon] then return end
+    if icon.cooldown == cd and icon.over and icon.spellID and icon.endtime then
+        icicleIcons[icon] = true
+
+        hooksecurefunc(icon, "Show", function(self)
+            if plateHiding then HideIcicleIcon(self) end
+        end)
+        if plateHiding then HideIcicleIcon(icon) end
+    end
+end)
+
+local function GetPlateBuffsBars()
+    if not (IsAddOnLoaded and IsAddOnLoaded("PlateBuffs")) then return nil end
+    local AA = LibStub and LibStub("AceAddon-3.0", true)
+    local pb = AA and AA:GetAddon("PlateBuffs", true)
+    if pb and type(pb.buffBars) == "table" then return pb.buffBars, pb end
+    return nil
+end
+
+local function HidePlateBuffs()
+    local bars = GetPlateBuffsBars()
+    if not bars then return end
+    for _, list in pairs(bars) do
+        for i = 1, #list do
+            local b = list[i]
+            if b:IsShown() then
+                plateHidden[b] = "pb"
+                b:Hide()
+            end
+        end
+    end
+end
+
+local function HidePlateIcons()
+    plateHiding = true
+    for icon in pairs(icicleIcons) do HideIcicleIcon(icon) end
+    HidePlateBuffs()
+end
+
+local function RestorePlateIcons()
+    if not plateHiding then return end
+    plateHiding = false
+    local now = GetTime()
+    local _, pb = GetPlateBuffsBars()
+    local pbOn = pb and (not pb.IsEnabled or pb:IsEnabled())
+    for f, what in pairs(plateHidden) do
+        if what == "pb" then
+            if pbOn then f:Show() end
+        else
+
+            local p = f:GetParent()
+            if p and p ~= UIParent and p:IsShown() and (f.endtime or 0) > now then
+                f:Show()
+            end
+
+            if type(what) == "table" and type(rawget(what, "icicle")) == "number" then
+                what.icicle = 0
+            end
+        end
+    end
+    wipe(plateHidden)
+end
+
+local plateSet   = {}
+local barAlphaOf = {}
+local barWanted  = {}
+local kids       = {}
+
+local function FillList(t, ...)
+    local n = select("#", ...)
+    for i = 1, n do t[i] = select(i, ...) end
+    for i = n + 1, #t do t[i] = nil end
+    return n
+end
+
+local function IsPlate(f)
+    if plateSet[f] then return true end
+    if f:GetName() or f:GetNumChildren() < 2 or f:GetNumRegions() < 7 then return false end
+    local hp = f:GetChildren()
+    local nameRegion = select(7, f:GetRegions())
+    if hp and hp:GetObjectType() == "StatusBar" and nameRegion
+       and nameRegion:GetObjectType() == "FontString" then
+        plateSet[f] = true
+        return true
+    end
+    return false
+end
+
+local function PlateParts(p)
+    local ext = rawget(p, "extended")
+    if type(ext) == "table" and ext.bars and ext.bars.healthbar then
+        return ext.bars.healthbar
+    end
+    local hp = p:GetChildren()
+    local border = select(2, p:GetRegions())
+    return hp, border
+end
+
+local function WantBar(p)
+    local a, b = PlateParts(p)
+    if a then barWanted[a] = true end
+    if b then barWanted[b] = true end
+end
+
+local function UpdateHealthBars()
+    wipe(barWanted)
+    local wantFocus = DB.focusBar and UnitExists("focus")
+    local wantMouse = DB.mouseBar
+    if wantFocus or wantMouse then
+        local fName = wantFocus and UnitName("focus")
+        local fHP, fMax = UnitHealth("focus"), UnitHealthMax("focus")
+        local n = FillList(kids, WorldFrame:GetChildren())
+        local focusPlate, focusCount, focusExact = nil, 0, nil
+        for i = 1, n do
+            local p = kids[i]
+            if p:IsShown() and IsPlate(p) then
+                local regs1, regs2, regs3, regs4, regs5, highlight, nameRegion = p:GetRegions()
+
+                if wantMouse and highlight and highlight:IsShown() then WantBar(p) end
+                if fName and nameRegion:GetText() == fName then
+                    focusCount = focusCount + 1
+                    focusPlate = p
+
+                    local hp = p:GetChildren()
+                    local _, mx = hp:GetMinMaxValues()
+                    if hp:GetValue() == fHP and mx == fMax then focusExact = p end
+                end
+            end
+        end
+        if focusCount == 1 then WantBar(focusPlate)
+        elseif focusExact then WantBar(focusExact) end
+    end
+
+    for f, a in pairs(barAlphaOf) do
+        if not barWanted[f] then
+            f:SetAlpha(a)
+            barAlphaOf[f] = nil
+        end
+    end
+    for f in pairs(barWanted) do
+        if barAlphaOf[f] == nil then barAlphaOf[f] = f:GetAlpha() end
+        f:SetAlpha(0)
+    end
+end
+
+local function RestoreHealthBars()
+    for f, a in pairs(barAlphaOf) do f:SetAlpha(a) end
+    wipe(barAlphaOf)
+end
+
 local function Start()
     if active then return end
     active = true
+    if DB.plateIcons then HidePlateIcons() end
     if dirty then Resolve() end
     local rootSet = {}
     for i = 1, #cache do rootSet[cache[i]] = true end
@@ -232,6 +415,8 @@ end
 local function Stop()
     if not active then return end
     active = false
+    RestorePlateIcons()
+    RestoreHealthBars()
     for i = 1, #touched do
         local f = touched[i]
         local r = saved[f]
@@ -299,6 +484,14 @@ watcher:SetScript("OnUpdate", function()
     local want = (SpellIsTargeting() and not IgnoredSpellPending()) or (GetTime() < forceUntil)
     if want and not active then Start()
     elseif not want and active then Stop() end
+
+    if PlatesWanted() then
+        if not plateHiding then HidePlateIcons() else HidePlateBuffs() end
+    elseif plateHiding then
+        RestorePlateIcons()
+    end
+
+    if active then UpdateHealthBars() end
 end)
 
 local panel = CreateFrame("Frame", "ClickThroughTrapOptions", UIParent)
@@ -357,11 +550,18 @@ local function BuildPanel()
     widgets[#widgets + 1] = MakeCheck("CTTCheckBars", L.CB_BARS, -120,
         function() return DB.bars end, function(v) DB.bars = v; dirty = true end)
 
-    widgets[#widgets + 1] = MakeSlider("CTTSliderFrames", L.SL_FRAMES, -175, "alpha")
-    widgets[#widgets + 1] = MakeSlider("CTTSliderBars", L.SL_BARS, -230, "barAlpha")
+    widgets[#widgets + 1] = MakeCheck("CTTCheckPlates", L.CB_PLATES, -150,
+        function() return DB.plateIcons end, function(v) DB.plateIcons = v end)
+    widgets[#widgets + 1] = MakeCheck("CTTCheckFocusBar", L.CB_FOCUSBAR, -180,
+        function() return DB.focusBar end, function(v) DB.focusBar = v end)
+    widgets[#widgets + 1] = MakeCheck("CTTCheckMouseBar", L.CB_MOUSEBAR, -210,
+        function() return DB.mouseBar end, function(v) DB.mouseBar = v end)
+
+    widgets[#widgets + 1] = MakeSlider("CTTSliderFrames", L.SL_FRAMES, -265, "alpha")
+    widgets[#widgets + 1] = MakeSlider("CTTSliderBars", L.SL_BARS, -320, "barAlpha")
 
     local btn = CreateFrame("Button", "CTTTestButton", panel, "UIPanelButtonTemplate")
-    btn:SetPoint("TOPLEFT", 20, -275)
+    btn:SetPoint("TOPLEFT", 20, -365)
     btn:SetWidth(200); btn:SetHeight(24)
     btn:SetText(L.BTN_TEST)
     btn:SetScript("OnClick", TestNow)
@@ -427,6 +627,13 @@ SlashCmdList["CLICKTHROUGHTRAP"] = function(msg)
             DB[cmd] = (rest == "on"); dirty = true
             Print(cmd .. ": " .. (DB[cmd] and L.INCLUDED or L.EXCLUDED))
         else Print(L.USAGE .. "/ctt " .. cmd .. " on|off") end
+
+    elseif cmd == "plates" then
+        rest = rest:lower()
+        if rest == "on" or rest == "off" then
+            DB.plateIcons = (rest == "on")
+            Print(L.PLATES .. (DB.plateIcons and L.HIDDEN or L.SHOWN))
+        else Print(L.USAGE .. "/ctt plates on|off") end
 
     elseif cmd == "alpha" or cmd == "baralpha" then
         local a = tonumber(rest)
