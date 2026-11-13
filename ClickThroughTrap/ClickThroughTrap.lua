@@ -328,20 +328,30 @@ local function IsPlate(f)
     return false
 end
 
-local function PlateParts(p)
-    local ext = rawget(p, "extended")
-    if type(ext) == "table" and ext.bars and ext.bars.healthbar then
-        return ext.bars.healthbar
-    end
-    local hp = p:GetChildren()
-    local border = select(2, p:GetRegions())
-    return hp, border
+local EXT_VISUALS = { "target" }
+local EXT_WIDGETS = { "TargetArt", "EliteOverlay", "ThreatArtWidget" }
+
+local function WantPart(f)
+    if type(f) == "table" and f.SetAlpha then barWanted[f] = true end
 end
 
 local function WantBar(p)
-    local a, b = PlateParts(p)
-    if a then barWanted[a] = true end
-    if b then barWanted[b] = true end
+    local ext = rawget(p, "extended")
+    if type(ext) == "table" and ext.bars and ext.bars.healthbar then
+
+        WantPart(ext.bars.healthbar)
+        local v, w = ext.visual, ext.widgets
+        if type(v) == "table" then
+            for i = 1, #EXT_VISUALS do WantPart(v[EXT_VISUALS[i]]) end
+        end
+        if type(w) == "table" then
+            for i = 1, #EXT_WIDGETS do WantPart(w[EXT_WIDGETS[i]]) end
+        end
+        return
+    end
+
+    WantPart((p:GetChildren()))
+    WantPart((select(2, p:GetRegions())))
 end
 
 local function UpdateHealthBars()
